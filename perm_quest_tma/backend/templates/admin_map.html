@@ -217,6 +217,7 @@
         }
         .btn-primary { background: #667eea; color: white; }
         .btn-primary:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3); }
+        .btn-primary:disabled { background: #999; cursor: not-allowed; transform: none; }
         .btn-secondary { background: #e0e0e0; color: #333; }
         .btn-secondary:hover { background: #d0d0d0; }
         
@@ -241,6 +242,8 @@
         .notification.success { border-left: 4px solid #51cf66; }
         .notification.error { border-left: 4px solid #ff6b6b; }
         .notification.info { border-left: 4px solid #667eea; }
+        
+        .loading { opacity: 0.6; pointer-events: none; }
         
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
@@ -288,48 +291,23 @@
                     </div>
                     <div class="menu-item" data-action="create-city">
                         <i class="fas fa-plus"></i>
-                        <span>Новый город</span>
-                    </div>
-                    <div class="menu-item" data-action="create-marker">
-                        <i class="fas fa-plus"></i>
-                        <span>AR-маркер</span>
+                        <span>Новый город (клик на карту)</span>
                     </div>
                 </div>
 
                 <!-- УПРАВЛЕНИЕ -->
                 <div class="menu-section">
                     <div class="menu-section-title">⚙️ Управление</div>
-                    <div class="menu-item" data-action="edit-quest">
-                        <i class="fas fa-edit"></i>
-                        <span>Редактировать квест</span>
-                    </div>
-                    <div class="menu-item" data-action="delete-quest">
-                        <i class="fas fa-trash"></i>
-                        <span>Удалить квест</span>
-                    </div>
                     <div class="menu-item" data-action="settings">
                         <i class="fas fa-sliders-h"></i>
                         <span>Системные настройки</span>
                     </div>
                 </div>
-
-                <!-- АНАЛИТИКА -->
-                <div class="menu-section">
-                    <div class="menu-section-title">📊 Аналитика</div>
-                    <div class="menu-item" data-action="analytics">
-                        <i class="fas fa-chart-line"></i>
-                        <span>Статистика</span>
-                    </div>
-                    <div class="menu-item" data-action="logs">
-                        <i class="fas fa-file-alt"></i>
-                        <span>Логи событий</span>
-                    </div>
-                </div>
             </div>
 
             <div class="sidebar-footer">
-                <button class="logout-btn">
-                    <i class="fas fa-sign-out-alt"></i> Выход
+                <button class="logout-btn" onclick="window.location.href='/admin/'">
+                    <i class="fas fa-arrow-left"></i> Старая админка
                 </button>
             </div>
         </div>
@@ -344,14 +322,13 @@
                         <span id="quest-count">Квестов: 0</span>
                     </div>
                     <div class="stats-item">
-                        <i class="fas fa-users"></i>
-                        <span id="player-count">Игроков онлайн: 0</span>
+                        <i class="fas fa-city"></i>
+                        <span id="city-count">Городов: 0</span>
                     </div>
-                </div>
-                <div class="top-bar-right">
-                    <button class="btn btn-secondary" id="settings-btn">
-                        <i class="fas fa-cog"></i> Открыть старую админку
-                    </button>
+                    <div class="stats-item">
+                        <i class="fas fa-users"></i>
+                        <span id="player-count">Игроков: 0</span>
+                    </div>
                 </div>
             </div>
 
@@ -370,15 +347,15 @@
                 <h2><i class="fas fa-map-location-dot"></i> Создать новый квест</h2>
                 <button class="close-modal" onclick="closeModal('questModal')">&times;</button>
             </div>
-            <form id="questForm">
+            <form id="questForm" onsubmit="submitQuestForm(event)">
                 <div class="form-group">
                     <label>Название квеста</label>
-                    <input type="text" name="title" required placeholder="Введите название">
+                    <input type="text" name="title" required placeholder="Введите название" maxlength="150">
                 </div>
 
                 <div class="form-group">
                     <label>Описание</label>
-                    <textarea name="description" placeholder="Описание квеста"></textarea>
+                    <textarea name="description" placeholder="Описание квеста" maxlength="2000"></textarea>
                 </div>
 
                 <div class="form-row">
@@ -394,21 +371,19 @@
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Минимальный уровень</label>
+                        <label>Мин. уровень</label>
                         <input type="number" name="min_level_required" value="1" min="1">
                     </div>
                     <div class="form-group">
                         <label>Макс. скорость (км/ч)</label>
-                        <input type="number" name="max_speed_kmh" value="20" min="1">
+                        <input type="number" name="max_speed_kmh" value="15" min="1" step="0.1">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Тип квеста</label>
-                    <select name="is_coop">
-                        <option value="false">Одиночный</option>
-                        <option value="true">Кооперативный</option>
-                    </select>
+                    <label>
+                        <input type="checkbox" name="is_coop"> Кооперативный
+                    </label>
                 </div>
 
                 <div class="form-group">
@@ -419,7 +394,7 @@
 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('questModal')">Отмена</button>
-                    <button type="submit" class="btn btn-primary">Создать квест</button>
+                    <button type="submit" class="btn btn-primary" id="questSubmitBtn">Создать</button>
                 </div>
             </form>
         </div>
@@ -432,10 +407,10 @@
                 <h2><i class="fas fa-city"></i> Создать новый город</h2>
                 <button class="close-modal" onclick="closeModal('cityModal')">&times;</button>
             </div>
-            <form id="cityForm">
+            <form id="cityForm" onsubmit="submitCityForm(event)">
                 <div class="form-group">
                     <label>Название города</label>
-                    <input type="text" name="name" required placeholder="Введите название">
+                    <input type="text" name="name" required placeholder="Введите название" maxlength="100">
                 </div>
 
                 <div class="form-row">
@@ -462,7 +437,7 @@
 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('cityModal')">Отмена</button>
-                    <button type="submit" class="btn btn-primary">Создать город</button>
+                    <button type="submit" class="btn btn-primary" id="citySubmitBtn">Создать</button>
                 </div>
             </form>
         </div>
@@ -473,6 +448,9 @@
         let selectedCoords = null;
         let markers = {};
         let creationMode = null;
+        let questMarkers = [];
+        let cityMarkers = [];
+        let playerMarkers = [];
 
         function initMap() {
             map = L.map('map').setView([58.0129, 56.2337], 13);
@@ -497,27 +475,125 @@
                 }
             });
 
-            loadStats();
+            loadAllData();
         }
 
-        function loadStats() {
-            $.ajax({
-                url: '/api/admin/dicts',
-                method: 'GET',
-                success: function(data) {
-                    if(data.quests) {
-                        document.getElementById('quest-count').textContent = `Квестов: ${data.quests.length}`;
-                    }
-                }
-            });
+        async function loadAllData() {
+            await loadStats();
+            await loadQuestsOnMap();
+            await loadCitiesOnMap();
+            await loadPlayersOnMap();
+        }
 
-            $.ajax({
-                url: '/api/admin/radar',
-                method: 'GET',
-                success: function(data) {
-                    document.getElementById('player-count').textContent = `Игроков онлайн: ${data.length}`;
+        async function loadStats() {
+            try {
+                // Получаем квесты
+                const questRes = await fetch('/api/admin/dicts');
+                const questData = await questRes.json();
+                if(questData.quests) {
+                    document.getElementById('quest-count').textContent = `Квестов: ${questData.quests.length}`;
                 }
-            });
+
+                // Получаем города
+                const cityRes = await fetch('/api/admin/cities');
+                const cityData = await cityRes.json();
+                document.getElementById('city-count').textContent = `Городов: ${cityData.length}`;
+
+                // Получаем игроков
+                const playerRes = await fetch('/api/admin/radar');
+                const playerData = await playerRes.json();
+                document.getElementById('player-count').textContent = `Игроков: ${playerData.length}`;
+            } catch (err) {
+                console.error('Ошибка загрузки статистики:', err);
+            }
+        }
+
+        async function loadQuestsOnMap() {
+            try {
+                const res = await fetch('/api/admin/quests-map');
+                const quests = await res.json();
+                
+                // Удаляем старые маркеры квестов
+                questMarkers.forEach(marker => map.removeLayer(marker));
+                questMarkers = [];
+
+                quests.forEach(quest => {
+                    const marker = L.marker([quest.lat, quest.lng], {
+                        icon: L.icon({
+                            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMTIgMmM1LjMzIDAgMTAgNC42NyAxMCAxMHMtNC42NyAxMC0xMCAxMFMyIDEwLjMzIDIgNiA2LjY3IDIgMTIgMnoiIGZpbGw9IiM2NjdlZWEiLz48L3N2Zz4=',
+                            iconSize: [32, 32],
+                            popupAnchor: [0, -16]
+                        })
+                    }).addTo(map);
+                    
+                    marker.bindPopup(`<b>${quest.title}</b><br>${quest.description.substring(0, 50)}...`);
+                    questMarkers.push(marker);
+                });
+            } catch (err) {
+                console.error('Ошибка загрузки квестов на карту:', err);
+            }
+        }
+
+        async function loadCitiesOnMap() {
+            try {
+                const res = await fetch('/api/admin/cities');
+                const cities = await res.json();
+                
+                // Удаляем старые маркеры городов
+                cityMarkers.forEach(marker => map.removeLayer(marker));
+                cityMarkers = [];
+
+                cities.forEach(city => {
+                    // Рисуем город как круг
+                    L.circle([city.lat, city.lng], {
+                        radius: city.radius_km * 1000,
+                        color: '#ff7f0e',
+                        fill: true,
+                        fillColor: '#ff7f0e',
+                        fillOpacity: 0.1,
+                        weight: 2
+                    }).addTo(map);
+
+                    const marker = L.marker([city.lat, city.lng], {
+                        icon: L.icon({
+                            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMTIgMmM1LjMzIDAgMTAgNC42NyAxMCAxMHMtNC42NyAxMC0xMCAxMFMyIDEwLjMzIDIgNiA2LjY3IDIgMTIgMnoiIGZpbGw9IiNmZjdmMGUiLz48L3N2Zz4=',
+                            iconSize: [32, 32],
+                            popupAnchor: [0, -16]
+                        })
+                    }).addTo(map);
+                    
+                    marker.bindPopup(`<b>${city.name}</b><br>Радиус: ${city.radius_km} км<br>Статус: ${city.is_active ? 'Активен' : 'Неактивен'}`);
+                    cityMarkers.push(marker);
+                });
+            } catch (err) {
+                console.error('Ошибка загрузки городов на карту:', err);
+            }
+        }
+
+        async function loadPlayersOnMap() {
+            try {
+                const res = await fetch('/api/admin/radar');
+                const players = await res.json();
+                
+                // Удаляем старые маркеры игроков
+                playerMarkers.forEach(marker => map.removeLayer(marker));
+                playerMarkers = [];
+
+                players.forEach(player => {
+                    const marker = L.marker([player.lat, player.lng], {
+                        icon: L.icon({
+                            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMTIgMmM1LjMzIDAgMTAgNC42NyAxMCAxMHMtNC42NyAxMC0xMCAxMFMyIDEwLjMzIDIgNiA2LjY3IDIgMTIgMnoiIGZpbGw9IiM1MWNmNjYiLz48L3N2Zz4=',
+                            iconSize: [24, 24],
+                            popupAnchor: [0, -12]
+                        })
+                    }).addTo(map);
+                    
+                    marker.bindPopup(`<b>${player.name}</b><br>Класс: ${player.class}<br>Последний раз: ${new Date(player.time).toLocaleTimeString()}`);
+                    playerMarkers.push(marker);
+                });
+            } catch (err) {
+                console.error('Ошибка загрузки игроков на карту:', err);
+            }
         }
 
         function openQuestModal(lat, lng) {
@@ -537,6 +613,89 @@
             creationMode = null;
         }
 
+        async function submitQuestForm(e) {
+            e.preventDefault();
+            const btn = document.getElementById('questSubmitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Создание...';
+
+            const formData = new FormData(document.getElementById('questForm'));
+            const data = {
+                title: formData.get('title'),
+                description: formData.get('description') || 'Новый квест',
+                latitude: parseFloat(formData.get('latitude')),
+                longitude: parseFloat(formData.get('longitude')),
+                min_level_required: parseInt(formData.get('min_level_required')) || 1,
+                max_speed_kmh: parseFloat(formData.get('max_speed_kmh')) || 15.0,
+                is_coop: formData.get('is_coop') ? true : false,
+                is_published: formData.get('is_published') ? true : false
+            };
+
+            try {
+                const res = await fetch('/api/admin/quests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    const result = await res.json();
+                    showNotification(`✅ ${result.message}`, 'success');
+                    closeModal('questModal');
+                    document.getElementById('questForm').reset();
+                    await loadAllData();
+                } else {
+                    const error = await res.json();
+                    showNotification(`❌ Ошибка: ${error.detail}`, 'error');
+                }
+            } catch (err) {
+                showNotification(`❌ Ошибка подключения: ${err.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Создать';
+            }
+        }
+
+        async function submitCityForm(e) {
+            e.preventDefault();
+            const btn = document.getElementById('citySubmitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Создание...';
+
+            const formData = new FormData(document.getElementById('cityForm'));
+            const data = {
+                name: formData.get('name'),
+                latitude: parseFloat(formData.get('latitude')),
+                longitude: parseFloat(formData.get('longitude')),
+                radius_km: parseFloat(formData.get('radius_km')) || 5.0,
+                is_active: formData.get('is_active') ? true : false
+            };
+
+            try {
+                const res = await fetch('/api/admin/cities', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    const result = await res.json();
+                    showNotification(`✅ ${result.message}`, 'success');
+                    closeModal('cityModal');
+                    document.getElementById('cityForm').reset();
+                    await loadAllData();
+                } else {
+                    const error = await res.json();
+                    showNotification(`❌ Ошибка: ${error.detail}`, 'error');
+                }
+            } catch (err) {
+                showNotification(`❌ Ошибка подключения: ${err.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Создать';
+            }
+        }
+
         document.querySelectorAll('.menu-item').forEach(item => {
             item.addEventListener('click', function() {
                 document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
@@ -553,18 +712,22 @@
             switch(action) {
                 case 'create-quest':
                     creationMode = 'quest';
-                    showNotification('Нажмите на карту, чтобы создать квест', 'info');
+                    showNotification('Нажмите на карту для создания квеста', 'info');
                     break;
                 case 'create-city':
                     creationMode = 'city';
-                    showNotification('Нажмите на карту, чтобы создать город', 'info');
+                    showNotification('Нажмите на карту для создания города', 'info');
                     break;
                 case 'view-players':
-                    loadStats();
+                    loadPlayersOnMap();
                     showNotification('Данные радара обновлены', 'info');
                     break;
-                default:
-                    console.log('Action:', action);
+                case 'view-quests':
+                    loadQuestsOnMap();
+                    break;
+                case 'view-cities':
+                    loadCitiesOnMap();
+                    break;
             }
         }
 
@@ -580,24 +743,8 @@
             
             setTimeout(() => {
                 notification.remove();
-            }, 3000);
+            }, 4000);
         }
-
-        document.getElementById('questForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            showNotification('Форма квеста готова к интеграции с API', 'info');
-            closeModal('questModal');
-        });
-
-        document.getElementById('cityForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            showNotification('Форма города готова к интеграции с API', 'info');
-            closeModal('cityModal');
-        });
-
-        document.getElementById('settings-btn').addEventListener('click', function() {
-            window.location.href = '/admin/';
-        });
 
         window.addEventListener('click', function(event) {
             if (event.target.classList.contains('modal')) {
@@ -605,6 +752,13 @@
                 creationMode = null;
             }
         });
+
+        // Автообновление радара каждые 10 секунд
+        setInterval(() => {
+            if (creationMode === null) {
+                loadPlayersOnMap();
+            }
+        }, 10000);
 
         window.addEventListener('load', initMap);
     </script>
