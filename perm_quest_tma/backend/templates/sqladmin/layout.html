@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta http-equiv="X-UA-Compatible" content="ie=edge"/>
+    <title>{% block title %}{{ title }}{% endblock %}</title>
+    
+    <!-- Базовые стили Tabler и Иконки -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta19/dist/css/tabler.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Карты Leaflet + Инструменты рисования -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    
+    <!-- Drawflow для Node-based визуального редактора логики -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+    {% block head %}{% endblock %}
+    
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #f4f6fa; }
+        
+        /* Стилизация меню */
+        .navbar-vertical .navbar-nav .nav-link { color: #ffffff !important; display: flex; align-items: center; padding: 0.5rem 1rem; }
+        .navbar-vertical .navbar-nav .nav-link:hover { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        .nav-category-header { color: #8a96a3; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .08em; padding: 1.2rem 1rem 0.5rem; font-weight: 700; }
+        
+        /* Стилизация Нод-Редактора (Drawflow) */
+        #drawflow { width: 100%; height: 600px; background: #2b2e38; border-radius: 8px; border: 2px solid #dee2e6; position: relative; }
+        .drawflow-node { background: #1e1e1e; color: white; border-radius: 8px; border: 2px solid #4f46e5; width: 250px; }
+        .drawflow-node .title-box { background: #4f46e5; padding: 10px; border-radius: 6px 6px 0 0; font-weight: bold; }
+        .drawflow-node .box { padding: 15px; }
+        .drawflow-node input { width: 100%; margin-top: 5px; padding: 5px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; }
+        
+        /* Интерактивная Карта */
+        #coord-map { width: 100%; height: 500px; border-radius: 8px; margin: 15px 0; border: 2px solid #dee2e6; z-index: 1; }
+        
+        /* Эмулятор мобильного устройства (TMA) */
+        .tma-emulator {
+            width: 375px; height: 812px; background: black; border-radius: 40px; border: 12px solid #222;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); overflow: hidden; position: relative; margin: 0 auto;
+        }
+        .tma-emulator iframe { width: 100%; height: 100%; border: none; }
+        .emulator-notch { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 150px; height: 30px; background: #222; border-radius: 0 0 15px 15px; z-index: 10; }
+
+        /* Вкладки (Tabs) для переключения режимов */
+        .admin-tabs { margin-bottom: 20px; border-bottom: 2px solid #dee2e6; }
+        .admin-tabs button { background: none; border: none; padding: 10px 20px; font-weight: bold; color: #626976; cursor: pointer; border-bottom: 3px solid transparent; }
+        .admin-tabs button.active { color: #4f46e5; border-bottom: 3px solid #4f46e5; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="layout-fluid">
+    <div class="page">
+        <!-- Боковое меню -->
+        <aside class="navbar navbar-vertical navbar-expand-lg navbar-dark bg-dark">
+            <div class="container-fluid">
+                <h1 class="navbar-brand navbar-brand-autodark">
+                    <a href="{{ admin.base_url }}" style="color: #ffffff !important;">🗺 Quest Engine</a>
+                </h1>
+                <div class="collapse navbar-collapse" id="sidebar-menu">
+                    <ul class="navbar-nav pt-lg-3">
+                        {% for category, views in admin.views | groupby('category') %}
+                            {% if category %}
+                                <div class="nav-category-header">{{ category }}</div>
+                            {% endif %}
+                            {% for view in views %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ admin.base_url }}/{{ view.identity }}/list">
+                                        <span class="nav-link-icon"><i class="{{ view.icon }}"></i></span>
+                                        <span class="nav-link-title">{{ view.name_plural }}</span>
+                                    </a>
+                                </li>
+                            {% endfor %}
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Основной контент -->
+        <div class="page-wrapper">
+            <header class="navbar navbar-expand-md navbar-light d-none d-md-flex d-print-none border-b">
+                <div class="container-fluid flex-row-reverse">
+                    <div class="navbar-nav">
+                        <button onclick="SuperEngine.openLiveOpsModal()" class="btn btn-warning btn-sm me-3"><i class="fa-solid fa-satellite-dish me-2"></i> Live-Ops Радар</button>
+                        <a href="{{ admin.base_url }}/logout" class="btn btn-outline-danger btn-sm">Выйти</a>
+                    </div>
+                </div>
+            </header>
+
+            <div class="page-body">
+                <div class="container-fluid" id="main-container">
+                    
+                    <!-- Если мы на странице редактирования Шага или Квеста, внедряем Вкладки -->
+                    <div id="engine-tabs" class="admin-tabs" style="display: none;">
+                        <button class="active" onclick="SuperEngine.switchTab('data')"><i class="fa-solid fa-database me-2"></i> Данные и Форма</button>
+                        <button onclick="SuperEngine.switchTab('map')"><i class="fa-solid fa-map-location-dot me-2"></i> Интерактивная Карта</button>
+                        <button onclick="SuperEngine.switchTab('nodes')"><i class="fa-solid fa-project-diagram me-2"></i> Логика Графов</button>
+                        <button onclick="SuperEngine.switchTab('play')"><i class="fa-solid fa-mobile-screen me-2"></i> Эмулятор (Play Mode)</button>
+                    </div>
+
+                    <!-- Контейнеры Вкладок -->
+                    <div id="tab-data" class="tab-content active">
+                        {% block content %}{% endblock %}
+                    </div>
+                    
+                    <div id="tab-map" class="tab-content">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white"><h3 class="card-title"><i class="fa-solid fa-route me-2"></i> Маршрутизация и Зоны</h3></div>
+                            <div class="card-body">
+                                <div id="coord-map"></div>
+                                <div class="mt-3 text-muted"><i class="fa-solid fa-circle-info me-2"></i> На карте отображаются все шаги текущего квеста. Перетаскивайте маркеры для изменения локаций. Синяя зона показывает радиус триггера.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-nodes" class="tab-content">
+                        <div class="card">
+                            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                                <h3 class="card-title"><i class="fa-solid fa-brain me-2"></i> Node-based Сюжетный Редактор</h3>
+                                <button class="btn btn-success btn-sm" onclick="SuperEngine.saveNodeGraph()"><i class="fa-solid fa-floppy-disk me-2"></i> Синхронизировать Граф с БД</button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="drawflow"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-play" class="tab-content">
+                        <div class="card border-0 bg-transparent shadow-none">
+                            <div class="card-body text-center">
+                                <h3 class="mb-4 text-muted"><i class="fa-solid fa-mobile-button me-2"></i> Тестирование Квеста (TMA Эмулятор)</h3>
+                                <div class="tma-emulator">
+                                    <div class="emulator-notch"></div>
+                                    <iframe src="/" id="tma-iframe"></iframe>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно Live-Ops Радара -->
+    <div class="modal modal-blur fade" id="liveOpsModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title"><i class="fa-solid fa-satellite-dish me-2"></i> Радар Игроков (Live-Ops) & Heatmaps</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label class="form-label">Инструменты</label>
+                                <button class="btn btn-outline-primary w-100 mb-2" onclick="SuperEngine.loadRadar()"><i class="fa-solid fa-users-viewfinder me-2"></i> Обновить Радар</button>
+                                <button class="btn btn-outline-danger w-100 mb-2" onclick="SuperEngine.loadHeatmap()"><i class="fa-solid fa-fire me-2"></i> Включить Heatmap</button>
+                            </div>
+                            <hr>
+                            <div id="live-players-list" style="max-height: 400px; overflow-y: auto;">
+                                <!-- Список онлайна -->
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <div id="live-map" style="width: 100%; height: 550px; border-radius: 8px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Скрипты -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta19/dist/js/tabler.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    
+    <!-- Плагин Тепловых Карт -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+    
+    <!-- Node Editor -->
+    <script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.js"></script>
+
+    <script>
+    // =====================================================================
+    // ⚔️ SUPER ENGINE: КОМПЛЕКСНОЕ УПРАВЛЕНИЕ АДМИНКОЙ (Карта, Ноды, Радар)
+    // =====================================================================
+    window.SuperEngine = {
+        map: null,
+        liveMap: null,
+        marker: null,
+        circle: null,
+        routeLayer: null,
+        editor: null,
+        allSteps: [],
+        heatLayer: null,
+
+        init() {
+            console.log("SuperEngine Initialize");
+            this.applyTranslations();
+
+            // Проверяем, на странице ли мы редактирования Шага (Step)
+            const isStepPage = window.location.pathname.includes('/step/edit') || window.location.pathname.includes('/step/create');
+            if (isStepPage) {
+                document.getElementById('engine-tabs').style.display = 'block';
+                this.initMap();
+                this.initNodeEditor();
+            }
+        },
+
+        switchTab(tabName) {
+            document.querySelectorAll('.admin-tabs button').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            event.currentTarget.classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            if (tabName === 'map' && this.map) setTimeout(() => this.map.invalidateSize(), 200);
+            if (tabName === 'nodes' && this.editor) setTimeout(() => this.editor.zoom_reset(), 100);
+        },
+
+        // --- ИНТЕРАКТИВНАЯ КАРТА (Вкладка 2) ---
+        initMap() {
+            const latInput = document.querySelector('input[name="latitude"]');
+            const lonInput = document.querySelector('input[name="longitude"]');
+            const radInput = document.querySelector('input[name="radius_meters"]');
+            if (!latInput || !lonInput) return;
+
+            const startLat = parseFloat(latInput.value) || 58.0097;
+            const startLon = parseFloat(lonInput.value) || 56.2444;
+            const radius = parseFloat(radInput ? radInput.value : 30) || 30;
+
+            this.map = L.map('coord-map').setView([startLat, startLon], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(this.map);
+
+            this.marker = L.marker([startLat, startLon], { draggable: true }).addTo(this.map);
+            this.circle = L.circle([startLat, startLon], { color: '#4f46e5', fillColor: '#6366f1', fillOpacity: 0.2, radius: radius }).addTo(this.map);
+
+            const updateFields = (e) => {
+                const pos = e.latlng || this.marker.getLatLng();
+                this.marker.setLatLng(pos);
+                this.circle.setLatLng(pos);
+                latInput.value = pos.lat.toFixed(6);
+                lonInput.value = pos.lng.toFixed(6);
+            };
+
+            this.map.on('click', updateFields);
+            this.marker.on('dragend', updateFields);
+            if(radInput) radInput.addEventListener('input', (e) => this.circle.setRadius(e.target.value || 30));
+
+            // Загружаем соседние шаги квеста для отрисовки маршрута (Polyline)
+            this.loadQuestRoute();
+        },
+
+        loadQuestRoute() {
+            // В идеале мы делаем fetch('/api/admin/dicts') и строим линию
+            fetch('/api/admin/dicts')
+                .then(res => res.json())
+                .then(data => {
+                    this.allSteps = data.steps;
+                    // TODO: Если в API добавить координаты шагов, здесь мы нарисуем линию маршрута
+                    // L.polyline(latlngs, {color: 'red'}).addTo(this.map);
+                });
+        },
+
+        // --- НОДОВЫЙ РЕДАКТОР СЮЖЕТА (Вкладка 3) ---
+        initNodeEditor() {
+            const container = document.getElementById('drawflow');
+            this.editor = new Drawflow(container);
+            this.editor.start();
+
+            // Создаем стартовую ноду (Текущий шаг)
+            const titleInput = document.querySelector('input[name="instruction_text"]');
+            const stepName = titleInput ? titleInput.value.substring(0, 20) : "Текущий Шаг";
+            
+            const htmlStart = `
+                <div class="title-box"><i class="fa-solid fa-flag-checkered me-2"></i>${stepName}</div>
+                <div class="box">
+                    <p class="text-muted small">Ожидание ответа пользователя...</p>
+                </div>
+            `;
+            this.editor.addNode('currentStep', 0, 1, 150, 300, 'currentStep', {}, htmlStart);
+
+            // Создаем ноды возможных переходов (из скрытого поля branches)
+            const branchesInput = document.querySelector('textarea[name="branches"]') || document.querySelector('input[name="branches"]');
+            if (branchesInput && branchesInput.value) {
+                try {
+                    const data = JSON.parse(branchesInput.value);
+                    const branches = data.branches || {};
+                    let yOffset = 100;
+                    
+                    Object.keys(branches).forEach((answer, idx) => {
+                        const targetId = branches[answer];
+                        const htmlBranch = `
+                            <div class="title-box bg-success"><i class="fa-solid fa-arrow-right-to-bracket me-2"></i>Переход</div>
+                            <div class="box">
+                                <label class="small text-muted">Ответ Игрока:</label>
+                                <input type="text" class="df-answer" value="${answer}" placeholder="Например: ключ">
+                                <label class="small text-muted mt-2">Куда ведет (ID шага):</label>
+                                <input type="text" class="df-target" value="${targetId}">
+                            </div>
+                        `;
+                        const nodeId = this.editor.addNode(`branch_${idx}`, 1, 0, 500, yOffset, 'branch', {answer: answer, target: targetId}, htmlBranch);
+                        this.editor.addConnection(1, nodeId, 'output_1', 'input_1');
+                        yOffset += 200;
+                    });
+                } catch(e) { console.error("Error parsing branches", e); }
+            }
+
+            // Кнопка добавления новой ветки прямо в редакторе
+            const addBtn = document.createElement('button');
+            addBtn.className = "btn btn-primary position-absolute";
+            addBtn.style.cssText = "top: 20px; left: 20px; z-index: 10;";
+            addBtn.innerHTML = "<i class='fa-solid fa-plus me-2'></i> Добавить Вариант Ответа";
+            addBtn.onclick = () => {
+                const htmlNew = `
+                    <div class="title-box bg-success"><i class="fa-solid fa-arrow-right-to-bracket me-2"></i>Новый Переход</div>
+                    <div class="box">
+                        <label class="small text-muted">Слово-триггер:</label>
+                        <input type="text" class="df-answer" value="" placeholder="ответ...">
+                        <label class="small text-muted mt-2">ID следующего шага:</label>
+                        <input type="text" class="df-target" value="final">
+                    </div>
+                `;
+                this.editor.addNode('newBranch', 1, 0, 500, 300, 'branch', {}, htmlNew);
+            };
+            container.appendChild(addBtn);
+        },
+
+        saveNodeGraph() {
+            const exportData = this.editor.export();
+            const nodes = exportData.drawflow.Home.data;
+            const newBranches = {};
+
+            Object.keys(nodes).forEach(key => {
+                const node = nodes[key];
+                if (node.class === 'branch') {
+                    // Ищем инпуты внутри HTML ноды
+                    const elem = document.getElementById(`node-${key}`);
+                    if (elem) {
+                        const ans = elem.querySelector('.df-answer').value;
+                        const tgt = elem.querySelector('.df-target').value;
+                        if (ans && tgt) {
+                            newBranches[ans] = isNaN(Number(tgt)) ? tgt : Number(tgt);
+                        }
+                    }
+                }
+            });
+
+            const branchesInput = document.querySelector('textarea[name="branches"]') || document.querySelector('input[name="branches"]');
+            if (branchesInput) {
+                branchesInput.value = JSON.stringify({ branches: newBranches });
+                alert("✅ Логика успешно синхронизирована с формой! Не забудьте нажать 'Сохранить' внизу страницы.");
+            }
+        },
+
+        // --- LIVE-OPS РАДАР (Модалка) ---
+        openLiveOpsModal() {
+            const modal = new bootstrap.Modal(document.getElementById('liveOpsModal'));
+            modal.show();
+            
+            if (!this.liveMap) {
+                setTimeout(() => {
+                    this.liveMap = L.map('live-map').setView([58.0097, 56.2444], 12);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OS' }).addTo(this.liveMap);
+                    this.loadRadar();
+                }, 400);
+            } else {
+                this.loadRadar();
+            }
+        },
+
+        loadRadar() {
+            if (this.heatLayer) { this.liveMap.removeLayer(this.heatLayer); this.heatLayer = null; }
+            
+            // Очистка старых маркеров
+            this.liveMap.eachLayer(layer => {
+                if (layer instanceof L.Marker) this.liveMap.removeLayer(layer);
+            });
+
+            fetch('/api/admin/radar')
+                .then(res => res.json())
+                .then(players => {
+                    const listContainer = document.getElementById('live-players-list');
+                    listContainer.innerHTML = '';
+                    
+                    if (players.length === 0) {
+                        listContainer.innerHTML = '<div class="alert alert-info">В данный момент нет активных игроков.</div>';
+                        return;
+                    }
+
+                    players.forEach(p => {
+                        // Добавляем маркер на карту
+                        const marker = L.marker([p.lat, p.lng]).addTo(this.liveMap);
+                        marker.bindPopup(`<b>${this.escHTML(p.name)}</b><br>Класс: ${p.class}<br>Квест ID: ${p.quest_id}`);
+                        
+                        // Добавляем в список слева
+                        const pCard = document.createElement('div');
+                        pCard.className = "card mb-2 shadow-sm border-primary";
+                        pCard.innerHTML = `
+                            <div class="card-body p-2" style="cursor: pointer;">
+                                <strong><i class="fa-solid fa-user me-2"></i>${this.escHTML(p.name)}</strong>
+                                <div class="small text-muted">ID: ${p.user_id} | Квест: ${p.quest_id}</div>
+                            </div>
+                        `;
+                        pCard.onclick = () => this.liveMap.setView([p.lat, p.lng], 17);
+                        listContainer.appendChild(pCard);
+                    });
+                }).catch(e => console.error(e));
+        },
+
+        loadHeatmap() {
+            const questId = prompt("Введите ID Квеста для анализа тепловой карты (Heatmap):", "1");
+            if (!questId) return;
+
+            // Очистка
+            this.liveMap.eachLayer(layer => { if (layer instanceof L.Marker) this.liveMap.removeLayer(layer); });
+            if (this.heatLayer) this.liveMap.removeLayer(this.heatLayer);
+
+            fetch(`/api/admin/heatmap/${questId}`)
+                .then(res => res.json())
+                .then(points => {
+                    if(points.length === 0) { alert("Нет данных геолокации для этого квеста."); return; }
+                    const heatData = points.map(p => [p.lat, p.lng, 1]); // lat, lng, intensity
+                    
+                    // Используем Leaflet.heat
+                    this.heatLayer = L.heatLayer(heatData, {
+                        radius: 25,
+                        blur: 15,
+                        maxZoom: 17,
+                        gradient: {0.4: 'blue', 0.6: 'cyan', 0.7: 'lime', 0.8: 'yellow', 1.0: 'red'}
+                    }).addTo(this.liveMap);
+                    
+                    this.liveMap.setView([points[0].lat, points[0].lng], 13);
+                });
+        },
+
+        // Утилиты
+        escHTML(str) { return String(str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); },
+        applyTranslations() {
+            const lexicon = { 'Save': 'Сохранить', 'Cancel': 'Отмена', 'Add': 'Добавить', 'Edit': 'Изменить' };
+            document.querySelectorAll('a, button, label, span').forEach(el => {
+                if (el.children.length === 0 && lexicon[el.textContent.trim()]) el.textContent = lexicon[el.textContent.trim()];
+            });
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        SuperEngine.init();
+        
+        // Интеграция Flatpickr (Календари)
+        flatpickr('input[name$="_at"]', { enableTime: true, time_24hr: true, dateFormat: "Y-m-d H:i:S" });
+
+        // Авто-удаление лишних кнопок SQLAdmin
+        document.querySelectorAll('button[name="save"], input[name="save"]').forEach(btn => {
+            const val = btn.value || btn.getAttribute('value');
+            if (val === 'Save and continue editing' || val === 'Save and add another') btn.remove();
+        });
+    });
+    </script>
+</body>
+</html>

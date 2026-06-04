@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🗺 Quest Sity - Админ Панель (Карта)</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; overflow: hidden; }
+        .admin-container { display: flex; height: 100vh; }
+        
+        .sidebar {
+            width: 320px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            overflow-y: auto;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+        }
+        
+        .sidebar-header { 
+            padding: 20px; 
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2); 
+            background: rgba(0, 0, 0, 0.2); 
+        }
+        .sidebar-header h1 { 
+            font-size: 18px; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+            margin-bottom: 5px;
+        }
+        .sidebar-header p { font-size: 12px; opacity: 0.8; }
+        
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 20px; }
+        .menu-section { margin-bottom: 30px; }
+        .menu-section-title { 
+            font-size: 11px; 
+            font-weight: bold; 
+            text-transform: uppercase; 
+            color: rgba(255, 255, 255, 0.6); 
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        
+        .menu-item {
+            padding: 12px 15px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: white;
+        }
+        
+        .menu-item:hover { background: rgba(255, 255, 255, 0.2); transform: translateX(5px); }
+        .menu-item.active { background: rgba(255, 255, 255, 0.3); border-color: white; font-weight: bold; }
+        .menu-item i { min-width: 20px; }
+        
+        .sidebar-footer { 
+            padding: 20px; 
+            border-top: 2px solid rgba(255, 255, 255, 0.2); 
+            background: rgba(0, 0, 0, 0.2); 
+        }
+        .logout-btn { 
+            width: 100%; 
+            padding: 10px; 
+            background: #ff6b6b; 
+            color: white; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            transition: all 0.3s ease;
+        }
+        .logout-btn:hover { background: #ff5252; }
+        
+        .main-content { flex: 1; display: flex; flex-direction: column; background: #fff; }
+        
+        .top-bar {
+            height: 60px;
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .top-bar-left { display: flex; align-items: center; gap: 30px; }
+        .top-bar-right { display: flex; align-items: center; gap: 20px; }
+        
+        .stats-item { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+        .stats-item i { color: #667eea; font-size: 18px; }
+        
+        .map-container { flex: 1; position: relative; }
+        #map { width: 100%; height: 100%; }
+        
+        .coord-display {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #51cf66;
+            padding: 12px 15px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 500;
+            font-family: 'Courier New', monospace;
+            border-left: 3px solid #51cf66;
+        }
+        
+        .modal { 
+            display: none; 
+            position: fixed; 
+            z-index: 2000; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            height: 100%; 
+            background-color: rgba(0, 0, 0, 0.5); 
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .modal-content { 
+            background: white; 
+            margin: 5% auto; 
+            padding: 30px; 
+            border-radius: 10px; 
+            width: 90%; 
+            max-width: 500px; 
+            box-shadow: 0 5px 30px rgba(0, 0, 0, 0.3); 
+            animation: slideIn 0.3s ease;
+            max-height: 80vh; 
+            overflow-y: auto; 
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateY(-50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .modal-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 20px; 
+            border-bottom: 2px solid #667eea; 
+            padding-bottom: 15px; 
+        }
+        .modal-header h2 { color: #667eea; font-size: 20px; }
+        .close-modal { 
+            background: none; 
+            border: none; 
+            font-size: 24px; 
+            cursor: pointer; 
+            color: #999;
+            transition: color 0.3s ease;
+        }
+        .close-modal:hover { color: #333; }
+        
+        .form-group { margin-bottom: 15px; }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-weight: bold; 
+            color: #333; 
+            font-size: 14px;
+        }
+        .form-group input, 
+        .form-group textarea, 
+        .form-group select { 
+            width: 100%; 
+            padding: 10px; 
+            border: 1px solid #ddd; 
+            border-radius: 6px; 
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .form-group input:focus, 
+        .form-group textarea:focus, 
+        .form-group select:focus { 
+            outline: none; 
+            border-color: #667eea; 
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3); 
+        }
+        
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+        
+        .btn { 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3); }
+        .btn-secondary { background: #e0e0e0; color: #333; }
+        .btn-secondary:hover { background: #d0d0d0; }
+        
+        .notification { 
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            background: white; 
+            padding: 15px 20px; 
+            border-radius: 6px; 
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2); 
+            z-index: 3000; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px;
+            animation: slideInRight 0.3s ease;
+        }
+        @keyframes slideInRight {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .notification.success { border-left: 4px solid #51cf66; }
+        .notification.error { border-left: 4px solid #ff6b6b; }
+        .notification.info { border-left: 4px solid #667eea; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #667eea; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #5568d3; }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <!-- ЛЕВАЯ ПАНЕЛЬ -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1><i class="fas fa-map"></i> Quest Sity Admin</h1>
+                <p>Управление квестами и локациями</p>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- УПРАВЛЕНИЕ КАРТОЙ -->
+                <div class="menu-section">
+                    <div class="menu-section-title">📍 Карта</div>
+                    <div class="menu-item active" data-action="view-quests">
+                        <i class="fas fa-map-location-dot"></i>
+                        <span>Просмотр квестов</span>
+                    </div>
+                    <div class="menu-item" data-action="view-cities">
+                        <i class="fas fa-city"></i>
+                        <span>Города</span>
+                    </div>
+                    <div class="menu-item" data-action="view-players">
+                        <i class="fas fa-users"></i>
+                        <span>Радар игроков</span>
+                    </div>
+                    <div class="menu-item" data-action="view-heatmap">
+                        <i class="fas fa-fire"></i>
+                        <span>Тепловая карта</span>
+                    </div>
+                </div>
+
+                <!-- СОЗДАНИЕ КОНТЕНТА -->
+                <div class="menu-section">
+                    <div class="menu-section-title">✨ Создание</div>
+                    <div class="menu-item" data-action="create-quest">
+                        <i class="fas fa-plus"></i>
+                        <span>Новый квест (клик на карту)</span>
+                    </div>
+                    <div class="menu-item" data-action="create-city">
+                        <i class="fas fa-plus"></i>
+                        <span>Новый город</span>
+                    </div>
+                    <div class="menu-item" data-action="create-marker">
+                        <i class="fas fa-plus"></i>
+                        <span>AR-маркер</span>
+                    </div>
+                </div>
+
+                <!-- УПРАВЛЕНИЕ -->
+                <div class="menu-section">
+                    <div class="menu-section-title">⚙️ Управление</div>
+                    <div class="menu-item" data-action="edit-quest">
+                        <i class="fas fa-edit"></i>
+                        <span>Редактировать квест</span>
+                    </div>
+                    <div class="menu-item" data-action="delete-quest">
+                        <i class="fas fa-trash"></i>
+                        <span>Удалить квест</span>
+                    </div>
+                    <div class="menu-item" data-action="settings">
+                        <i class="fas fa-sliders-h"></i>
+                        <span>Системные настройки</span>
+                    </div>
+                </div>
+
+                <!-- АНАЛИТИКА -->
+                <div class="menu-section">
+                    <div class="menu-section-title">📊 Аналитика</div>
+                    <div class="menu-item" data-action="analytics">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Статистика</span>
+                    </div>
+                    <div class="menu-item" data-action="logs">
+                        <i class="fas fa-file-alt"></i>
+                        <span>Логи событий</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i> Выход
+                </button>
+            </div>
+        </div>
+
+        <!-- ГЛАВНОЕ СОДЕРЖИМОЕ -->
+        <div class="main-content">
+            <!-- TOP BAR -->
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <div class="stats-item">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span id="quest-count">Квестов: 0</span>
+                    </div>
+                    <div class="stats-item">
+                        <i class="fas fa-users"></i>
+                        <span id="player-count">Игроков онлайн: 0</span>
+                    </div>
+                </div>
+                <div class="top-bar-right">
+                    <button class="btn btn-secondary" id="settings-btn">
+                        <i class="fas fa-cog"></i> Открыть старую админку
+                    </button>
+                </div>
+            </div>
+
+            <!-- КАРТА -->
+            <div class="map-container">
+                <div id="map"></div>
+                <div class="coord-display" id="coords">📍 Клик на карту для координат</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДЛЯ СОЗДАНИЯ КВЕСТА -->
+    <div id="questModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-map-location-dot"></i> Создать новый квест</h2>
+                <button class="close-modal" onclick="closeModal('questModal')">&times;</button>
+            </div>
+            <form id="questForm">
+                <div class="form-group">
+                    <label>Название квеста</label>
+                    <input type="text" name="title" required placeholder="Введите название">
+                </div>
+
+                <div class="form-group">
+                    <label>Описание</label>
+                    <textarea name="description" placeholder="Описание квеста"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Широта</label>
+                        <input type="number" name="latitude" step="0.00001" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Долгота</label>
+                        <input type="number" name="longitude" step="0.00001" readonly>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Минимальный уровень</label>
+                        <input type="number" name="min_level_required" value="1" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Макс. скорость (км/ч)</label>
+                        <input type="number" name="max_speed_kmh" value="20" min="1">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Тип квеста</label>
+                    <select name="is_coop">
+                        <option value="false">Одиночный</option>
+                        <option value="true">Кооперативный</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="is_published"> Опубликован
+                    </label>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('questModal')">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать квест</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДЛЯ СОЗДАНИЯ ГОРОДА -->
+    <div id="cityModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-city"></i> Создать новый город</h2>
+                <button class="close-modal" onclick="closeModal('cityModal')">&times;</button>
+            </div>
+            <form id="cityForm">
+                <div class="form-group">
+                    <label>Название города</label>
+                    <input type="text" name="name" required placeholder="Введите название">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Широта</label>
+                        <input type="number" name="latitude" step="0.00001" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Долгота</label>
+                        <input type="number" name="longitude" step="0.00001" readonly>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Радиус города (км)</label>
+                    <input type="number" name="radius_km" value="5" min="0.1" step="0.1">
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="is_active" checked> Активен
+                    </label>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('cityModal')">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать город</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let selectedCoords = null;
+        let markers = {};
+        let creationMode = null;
+
+        function initMap() {
+            map = L.map('map').setView([58.0129, 56.2337], 13);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            map.on('click', function(e) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                selectedCoords = { lat, lng };
+                
+                document.getElementById('coords').textContent = 
+                    `📍 Широта: ${lat.toFixed(5)} | Долгота: ${lng.toFixed(5)}`;
+
+                if (creationMode === 'quest') {
+                    openQuestModal(lat, lng);
+                } else if (creationMode === 'city') {
+                    openCityModal(lat, lng);
+                }
+            });
+
+            loadStats();
+        }
+
+        function loadStats() {
+            $.ajax({
+                url: '/api/admin/dicts',
+                method: 'GET',
+                success: function(data) {
+                    if(data.quests) {
+                        document.getElementById('quest-count').textContent = `Квестов: ${data.quests.length}`;
+                    }
+                }
+            });
+
+            $.ajax({
+                url: '/api/admin/radar',
+                method: 'GET',
+                success: function(data) {
+                    document.getElementById('player-count').textContent = `Игроков онлайн: ${data.length}`;
+                }
+            });
+        }
+
+        function openQuestModal(lat, lng) {
+            document.querySelector('#questForm [name="latitude"]').value = lat.toFixed(5);
+            document.querySelector('#questForm [name="longitude"]').value = lng.toFixed(5);
+            document.getElementById('questModal').style.display = 'block';
+        }
+
+        function openCityModal(lat, lng) {
+            document.querySelector('#cityForm [name="latitude"]').value = lat.toFixed(5);
+            document.querySelector('#cityForm [name="longitude"]').value = lng.toFixed(5);
+            document.getElementById('cityModal').style.display = 'block';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+            creationMode = null;
+        }
+
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+                this.classList.add('active');
+                
+                const action = this.getAttribute('data-action');
+                handleMenuAction(action);
+            });
+        });
+
+        function handleMenuAction(action) {
+            creationMode = null;
+            
+            switch(action) {
+                case 'create-quest':
+                    creationMode = 'quest';
+                    showNotification('Нажмите на карту, чтобы создать квест', 'info');
+                    break;
+                case 'create-city':
+                    creationMode = 'city';
+                    showNotification('Нажмите на карту, чтобы создать город', 'info');
+                    break;
+                case 'view-players':
+                    loadStats();
+                    showNotification('Данные радара обновлены', 'info');
+                    break;
+                default:
+                    console.log('Action:', action);
+            }
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle';
+            notification.innerHTML = `
+                <i class="fas fa-${icon}"></i>
+                <span>${message}</span>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        document.getElementById('questForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            showNotification('Форма квеста готова к интеграции с API', 'info');
+            closeModal('questModal');
+        });
+
+        document.getElementById('cityForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            showNotification('Форма города готова к интеграции с API', 'info');
+            closeModal('cityModal');
+        });
+
+        document.getElementById('settings-btn').addEventListener('click', function() {
+            window.location.href = '/admin/';
+        });
+
+        window.addEventListener('click', function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+                creationMode = null;
+            }
+        });
+
+        window.addEventListener('load', initMap);
+    </script>
+</body>
+</html>
