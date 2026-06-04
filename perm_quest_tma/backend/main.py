@@ -4,19 +4,21 @@ import math
 import json
 import logging
 from typing import Optional, Dict, Any, List
+import re
 
 from fastapi import FastAPI, Depends, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func, desc
 
 # Импортируем модули настроек и базы данных
 from tgbot.config import settings
 from tgbot.database.db_api import db, get_utc_now
-from tgbot.database.models import ShopItemType, QuestProgress, Step, Quest, PlayerLocationLog, ActiveQuest, User
+from tgbot.database.models import ShopItemType, QuestProgress, Step, Quest, PlayerLocationLog, ActiveQuest, User, City
 from backend.auth import verify_telegram_init_data
 from backend.admin_panel import setup_admin
+from backend.map_admin_routes import setup_map_admin
 
 # Конфигурация логирования
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +49,24 @@ class AnswerSubmitSchema(BaseModel):
 
 class ClassChangeSchema(BaseModel):
     rpg_class: str
+
+# --- Admin API Schemas ---
+class CreateQuestSchema(BaseModel):
+    title: str = Field(..., min_length=1, max_length=150)
+    description: str = Field(..., min_length=1, max_length=2000)
+    latitude: float
+    longitude: float
+    min_level_required: int = Field(default=1, ge=1)
+    max_speed_kmh: float = Field(default=15.0, gt=0)
+    is_coop: bool = Field(default=False)
+    is_published: bool = Field(default=False)
+
+class CreateCitySchema(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    latitude: float
+    longitude: float
+    radius_km: float = Field(default=5.0, gt=0)
+    is_active: bool = Field(default=True)
 
 
 # --- Вспомогательные функции ---
@@ -95,11 +115,20 @@ def normalize_json_field(value: Any) -> Any:
         except Exception: return value
     return value
 
+def generate_slug(text: str) -> str:
+    """Генерирует slug из текста (используется для cities.slug)"""
+    slug = text.lower().strip()
+    slug = re.sub(r'[^\w\s-]', '', slug)
+    slug = re.sub(r'[-\s]+', '-', slug)
+    return slug.strip('-')
+
 
 @app.on_event("startup")
 async def on_startup():
     setup_admin(app, db.engine)
+    setup_map_admin(app)
     logger.info("Веб-админпанель SQLAdmin подключена на /admin/")
+    logger.info("Карта-основанная админпанель подключена на /admin-map/")
     await db.create_all()
     logger.info("База данных успешно синхронизирована.")
 
@@ -155,6 +184,144 @@ async def get_admin_dicts():
         s_stmt = select(Step.id, Step.instruction_text, Quest.title).join(Quest, Step.quest_id == Quest.id).order_by(Step.id)
         steps = [{"id": r[0], "text": f"[{r[2][:20]}] {r[1][:35]}..."} for r in (await session.execute(s_stmt)).all()]
         return {"quests": quests, "steps": steps}
+
+@app.get("/api/admin/quests-map")
+async def get_quests_for_map():
+    """Возвращает все квесты с координатами для отображения на карте"""
+    async with db.session_pool() as session:
+        stmt = select(Quest.id, Quest.title, Quest.description, Quest.is_published, Quest.min_level_required).order_by(Quest.id)
+        quests = await session.execute(stmt)
+        
+        result = []
+        for quest_id, title, description, is_published, min_level in quests.all():
+            # Получаем первый шаг квеста для координат
+            step_stmt = select(Step.latitude, Step.longitude).where(Step.quest_id == quest_id).order_by(Step.id).limit(1)
+            step_result = await session.execute(step_stmt)
+            step_row = step_result.first()
+            
+            if step_row:
+                result.append({
+                    "id": quest_id,
+                    "title": title,
+                    "description": description,
+                    "is_published": is_published,
+                    "min_level_required": min_level,
+                    "lat": step_row[0],
+                    "lng": step_row[1],
+                    "type": "quest"
+                })
+        
+        return result
+
+@app.get("/api/admin/cities")
+async def get_cities_list():
+    """Возвращает все города для отображения на карте"""
+    async with db.session_pool() as session:
+        stmt = select(City.id, City.name, City.latitude, City.longitude, City.radius_km, City.is_active).order_by(City.id)
+        cities = await session.execute(stmt)
+        
+        result = []
+        for city_id, name, lat, lng, radius, is_active in cities.all():
+            result.append({
+                "id": city_id,
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "radius_km": radius,
+                "is_active": is_active,
+                "type": "city"
+            })
+        
+        return result
+
+@app.post("/api/admin/quests")
+async def create_quest(req: CreateQuestSchema):
+    """Создает новый квест через админ-панель карты"""
+    async with db.session_pool() as session:
+        # Проверяем, что квест с таким названием еще не существует
+        existing = await session.execute(select(Quest).where(Quest.title == req.title))
+        if existing.first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Квест с названием '{req.title}' уже существует."
+            )
+        
+        # Создаем новый квест
+        new_quest = Quest(
+            title=req.title,
+            description=req.description,
+            is_published=req.is_published,
+            max_speed_kmh=req.max_speed_kmh,
+            min_level_required=req.min_level_required,
+            is_coop=req.is_coop,
+            created_at=get_utc_now()
+        )
+        
+        session.add(new_quest)
+        await session.flush()
+        
+        # Создаем первый шаг квеста с координатами
+        first_step = Step(
+            quest_id=new_quest.id,
+            instruction_text=f"Начало квеста: {req.title}",
+            latitude=req.latitude,
+            longitude=req.longitude,
+            radius_meters=30,
+            min_karma_required=0,
+            is_final=False,
+            branches={"branches": {}}
+        )
+        
+        session.add(first_step)
+        await session.commit()
+        
+        logger.info(f"✅ Создан новый квест ID={new_quest.id}: {req.title}")
+        
+        return {
+            "status": "success",
+            "id": new_quest.id,
+            "title": new_quest.title,
+            "message": f"✅ Квест '{req.title}' создан! ID: {new_quest.id}"
+        }
+
+@app.post("/api/admin/cities")
+async def create_city(req: CreateCitySchema):
+    """Создает новый город через админ-панель карты"""
+    async with db.session_pool() as session:
+        # Генерируем slug
+        slug = generate_slug(req.name)
+        
+        # Проверяем, что город с таким slug еще не существует
+        existing = await session.execute(select(City).where(City.slug == slug))
+        if existing.first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Город с названием '{req.name}' уже существует."
+            )
+        
+        # Создаем новый город
+        new_city = City(
+            name=req.name,
+            slug=slug,
+            latitude=req.latitude,
+            longitude=req.longitude,
+            radius_km=req.radius_km,
+            is_active=req.is_active,
+            timezone="Asia/Yekaterinburg",
+            created_at=get_utc_now()
+        )
+        
+        session.add(new_city)
+        await session.commit()
+        
+        logger.info(f"✅ Создан новый город ID={new_city.id}: {req.name}")
+        
+        return {
+            "status": "success",
+            "id": new_city.id,
+            "name": new_city.name,
+            "message": f"✅ Город '{req.name}' создан! ID: {new_city.id}"
+        }
 
 
 # =====================================================================
